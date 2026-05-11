@@ -57,7 +57,6 @@ class History3D:
                 other_values = (iters[1:], values[1:])
                 values = values[0]
                 iters = iters[:1]
-
             else:
                 raise TypeError(
                     "values should be a History object or a list of History objects"
@@ -74,7 +73,6 @@ class History3D:
         self._single_value = values._single_value
         self._iters = iters
         self._lengths_inner = np.array([values._lengths_inner])
-        # self._lengths_inner = [len(values)]
 
         for i, v in zip(*other_values):
             self.append(v, it=i)
@@ -89,7 +87,6 @@ class History3D:
         value_name: str | None = None,
         lengths_inner: list[int] | None = None,
     ):
-
         self = cls.__new__(cls)
         value_dict = value_dict.copy()
 
@@ -101,6 +98,7 @@ class History3D:
             raise IOError(
                 "You are loading some older version of a checkpoint. We can fix it but let me know"
             )
+
         if "axis1" in value_dict:
             _val = value_dict.pop("axis1")
             if iters_2d is None:
@@ -110,7 +108,6 @@ class History3D:
                 "You are loading some older version of a checkpoint. We can fix it but let me know"
             )
 
-        # nans are stored as None in json, so we need to replace them with np.nan when loading
         for k, v in value_dict.items():
             if isinstance(v, list):
                 value_dict[k] = np.array(replace_none_with_nan(v))
@@ -123,17 +120,14 @@ class History3D:
             lengths_inner = compute_inner_length(value_dict["iters"], axis=2)
         self._lengths_inner = np.array(lengths_inner, dtype=np.int64)
 
-        # If not set, we can guess if there is a single value
-        # and in that case load the single value name.
         if len(set(self.keys()) - {"axis0", "axis1", "iters"}) == 1:
-            # TODO: maybe we should serialize this?
             self._single_value = True
             if value_name is None:
                 value_name = list(set(self.keys()) - {"axis0", "axis1", "iters"})[0]
         else:
             self._single_value = False
-        self._value_name = value_name
 
+        self._value_name = value_name
         return self
 
     @property
@@ -170,18 +164,14 @@ class History3D:
         return len(self.iters)
 
     def __getattr__(self, attr):
-        # Allow users to access fields with . accessor patterns
         if attr in self._value_dict:
             return self._value_dict[attr]
-
         raise AttributeError
 
     def __iter__(self):
         return ((it, self[i]) for i, it in enumerate(self.iters))
 
     def __getitem__(self, key) -> Array:
-        # if its an int corresponding to an element not inside the dict,
-        # treat it as accessing a slice of a single element
         if isinstance(key, str):
             if key == "iters":
                 return self.iters
@@ -190,6 +180,7 @@ class History3D:
 
         if not isinstance(key, tuple):
             key = (key,)
+
         if len(key) == 1 and isinstance(key[0], int):
             return self._get_single(key[0])
         elif len(key) <= 0:
@@ -203,16 +194,16 @@ class History3D:
             raise ValueError("Can index at most 3 dimensions in a History3D object.")
 
     def _get_slice(self, slce: slice) -> History:
-        """
-        get a slice of iterations from this history object
-        """
         hist = History3D.__new__(History3D)
+
         if len(slce) == 1:
             hist._lengths_inner = self._lengths_inner[slce[0]]
         else:
             hist._lengths_inner = self._lengths_inner[slce[0], slce[1]]
+
         max_len = self.shape[1]
         max_inner_len = np.max(hist._lengths_inner)
+
         if len(slce) == 1:
             slce = (slce[0], slice(max_len), slice(max_inner_len))
         elif len(slce) == 2:
@@ -221,7 +212,6 @@ class History3D:
                 if slce2.stop is None or slce2.stop > max_len:
                     slce2 = slice(slce2.start, max_len, slce2.step)
             else:
-                # convert to slice the inner index, otherwise we break hist3d
                 slce2 = slice(slce2, slce2 + 1)
             slce = (slce1, slce2)
         elif len(slce) == 3:
@@ -230,14 +220,14 @@ class History3D:
                 if slce2.stop is None or slce2.stop > max_len:
                     slce2 = slice(slce2.start, max_len, slce2.step)
             else:
-                # convert to slice the inner index, otherwise we break hist3d
                 slce2 = slice(slce2, slce2 + 1)
+
             if isinstance(slce3, slice):
                 if slce3.stop is None or slce3.stop > max_inner_len:
                     slce3 = slice(slce3.start, max_inner_len, slce3.step)
             else:
-                # convert to slice the inner index, otherwise we break hist3d
                 slce3 = slice(slce3, slce3 + 1)
+
             slce = (slce1, slce2, slce3)
         else:
             raise ValueError(f"wrong length {len(slce)}")
@@ -258,13 +248,12 @@ class History3D:
         lengths_hist2d = self._lengths_inner[i]
         real_len = np.max(lengths_hist2d)
 
-        # todo this should be adaptive
         real_len_2d = len(lengths_hist2d)
+
         for key in self.keys():
             values_sliced[key] = self._value_dict[key][i, :real_len_2d, :real_len]
 
         hist = History2D.__new__(History2D)
-        # hist = History2D(values_sliced)
         hist._value_dict = values_sliced
         hist._value_name = self._value_name
         hist._single_value = self._single_value
@@ -276,88 +265,122 @@ class History3D:
         return key in self._value_dict
 
     def keys(self) -> list:
-        _keys = list(self._value_dict.keys())
-        return _keys
+        return list(self._value_dict.keys())
+
+    def _pad_array(self, arr, target_shape):
+        pad_shape = []
+        for old, new in zip(arr.shape, target_shape):
+            pad_shape.append((0, max(0, new - old)))
+
+        if np.issubdtype(arr.dtype, np.floating):
+            return np.pad(arr, pad_shape, mode="constant", constant_values=np.nan)
+        else:
+            return np.pad(arr, pad_shape, mode="edge")
 
     def append(
         self, val: History | dict, it: Number | None = None, it1: Number | None = None
     ):
         """
-        Append another value to this history object.
+        Append another History2D object to this History3D object.
 
-        Args:
-            val: the value in the next timestep
-            it: the time corresponding to this new value. If
-                not defined, increment by 1.
+        This version supports variable second and third dimensions across
+        appended History2D objects by padding ragged entries.
         """
         if it is None:
             it = self.iters[-1] + 1
         it0 = it
+
         if not isinstance(val, History2D):
             raise TypeError()
 
-        old_inner_inner_length = self.shape[2]
+        old_outer_len = self.shape[1]
+        old_inner_len = self.shape[2]
+
+        new_outer_len = len(val)
+        new_inner_len = int(np.max(val._lengths_inner))
+
+        max_outer_len = max(old_outer_len, new_outer_len)
+        max_inner_len = max(old_inner_len, new_inner_len)
+
+        # Pad stored inner lengths if number of inner histories changed.
+        if self._lengths_inner.shape[1] < max_outer_len:
+            self._lengths_inner = np.pad(
+                self._lengths_inner,
+                ((0, 0), (0, max_outer_len - self._lengths_inner.shape[1])),
+                mode="constant",
+                constant_values=0,
+            )
+
+        new_lengths = np.asarray(val._lengths_inner, dtype=self._lengths_inner.dtype)
+        if new_lengths.shape[0] < max_outer_len:
+            new_lengths = np.pad(
+                new_lengths,
+                (0, max_outer_len - new_lengths.shape[0]),
+                mode="constant",
+                constant_values=0,
+            )
+
         self._lengths_inner = np.concatenate(
-            [self._lengths_inner, np.expand_dims(val._lengths_inner, 0)], axis=0
+            [self._lengths_inner, new_lengths[None, :]],
+            axis=0,
         )
-        max_inner_inner_len = np.max(self._lengths_inner)
+
+        # Pad stored second-level iteration axis if number of inner histories changed.
+        if self._iters_2d.shape[1] < max_outer_len:
+            self._iters_2d = np.pad(
+                self._iters_2d,
+                ((0, 0), (0, max_outer_len - self._iters_2d.shape[1])),
+                mode="edge",
+            )
+
+        new_iters = np.asarray(val.iters, dtype=self._iters_2d.dtype)
+        if new_iters.shape[0] < max_outer_len:
+            new_iters = np.pad(
+                new_iters,
+                (0, max_outer_len - new_iters.shape[0]),
+                mode="edge",
+            )
 
         self._iters_2d = np.concatenate(
-            [self._iters_2d, np.expand_dims(np.array(val.iters), 0)], axis=0
+            [self._iters_2d, new_iters[None, :]],
+            axis=0,
         )
 
-        # print("keys:", list(self.keys()))
         for key in self.keys():
-            _vals = self._value_dict[key]
+            old_vals = self._value_dict[key]
+            new_val = np.asarray(val._value_dict[key])
 
-            new_shape = (
-                len(_vals) + 1,
-                _vals.shape[1],
-                max_inner_inner_len,
-            ) + _vals.shape[3:]
-            if old_inner_inner_length < max_inner_inner_len:
-                pad_shape = [(0, 0) for _ in range(_vals.ndim)]
-                pad_shape[0] = (0, 1)  # add a new element
-                pad_shape[1] = (0, 0)  # assume no change in second dimension
-                pad_shape[2] = (0, max_inner_inner_len - old_inner_inner_length)
-                if np.issubdtype(_vals.dtype, np.floating):
-                    _vals = np.pad(
-                        _vals, pad_shape, mode="constant", constant_values=np.nan
-                    )
-                else:
-                    _vals = np.pad(_vals, pad_shape, mode="edge")
-                self._value_dict[key] = _vals
-            else:
-                # try to resize in place the buffer so that we don't reallocate
-                # and if we fail, resize tby reallocating to a new buffer.
-                try:
-                    _vals.resize(new_shape)
-                except ValueError:
-                    _vals = np.resize(_vals, new_shape)
-                    self._value_dict[key] = _vals
+            target_shape = (
+                old_vals.shape[0] + 1,
+                max_outer_len,
+                max_inner_len,
+            ) + old_vals.shape[3:]
 
-            new_val = val._value_dict[key]
-            if old_inner_inner_length > max_inner_inner_len:
-                _vals[-1][: len(val)] = new_val
-                if np.issubdtype(_vals.dtype, np.floating):
-                    _vals[-1][len(val) :] = np.nan
-                else:
-                    _vals[-1][len(val) :] = new_val[-1]
+            padded_vals = self._pad_array(old_vals, target_shape)
+
+            # If _pad_array padded axis 0, the last entry may be edge-copied.
+            # Replace it with a clean placeholder before inserting new data.
+            if np.issubdtype(padded_vals.dtype, np.floating):
+                padded_vals[-1, ...] = np.nan
             else:
-                vshp = _vals.shape[1:]
-                shp = new_val.shape
-                # _vals[-1, : shp[0], : shp[1]] = new_val
-                _vals[-1, :, : shp[1]] = new_val
-                if shp[1] < vshp[1]:
-                    if np.issubdtype(_vals.dtype, np.floating):
-                        _vals[-1, :, shp[1] :] = np.nan
-                    else:
-                        _vals[-1, :, shp[1] :] = new_val[:, -1].reshape(-1, 1)
+                padded_vals[-1, ...] = 0
+
+            shp = new_val.shape
+
+            padded_vals[
+                -1,
+                : shp[0],
+                : shp[1],
+                ...
+            ] = new_val
+
+            self._value_dict[key] = padded_vals
 
         try:
             self.iters.resize(len(self.iters) + 1)
         except ValueError:
             self._iters = np.resize(self.iters, (len(self.iters) + 1))
+
         self.iters[-1] = it0
 
     def __repr__(self):
@@ -369,6 +392,7 @@ class History3D:
                 f" {self.iters[-2]}, {self.iters[-1]}] "
                 f"({len(self.iters)} steps)"
             )
+
         keys = list(set(self.keys()) - {"iters", "axis0", "axis1"})
         return (
             "History3D("

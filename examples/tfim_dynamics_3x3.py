@@ -6,6 +6,12 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 import qutip as qt
 import numpy as np
+import sys
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PKG_PATH = os.path.join(BASE_DIR, "ptvmc-systematic-study", "packages")
+sys.path.insert(0, PKG_PATH)
+
 import ptvmc
 
 from functools import partial
@@ -58,7 +64,7 @@ mx = sum([sigmax(hi, i) for i in g.nodes()]) / g.n_nodes
 
 # Exact simulation
 dt = 0.025
-T = 1.
+T = 0.1
 
 times_qo = np.linspace(0, T, 100)
 qo_sol = qt.sesolve(
@@ -163,7 +169,7 @@ compression_alg = ptvmc.compression.InfidelityCompression(
 )
 
 # Discretization scheme used to approximate the time-evolution operator
-solver = ptvmc.solver.PPE4()
+solver = ptvmc.solver.SPPE3()
 
 # Define the PTVMC driver
 integration_params = ptvmc.IntegrationParameters(
@@ -194,3 +200,4 @@ callback = [
     save_path=os.path.join(_SCRIPT_DIR, "states/"),
     save_every=1,
 )
+
