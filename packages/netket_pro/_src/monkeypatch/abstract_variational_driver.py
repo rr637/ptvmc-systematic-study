@@ -1,4 +1,4 @@
-from netket.driver.abstract_variational_driver import AbstractVariationalDriver
+from netket.driver import AbstractVariationalDriver
 from netket.utils import module_version
 
 from netket_pro._src.monkeypatch.util import replace_method
